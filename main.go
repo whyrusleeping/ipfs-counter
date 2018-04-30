@@ -53,6 +53,13 @@ var (
 		Help:      "dht 'findclosestpeers' latencies",
 		Buckets:   []float64{0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.7, 1, 2, 5, 10, 15, 20, 25, 30, 60},
 	})
+
+	addr_counts_s = prometheus.NewSummary(prometheus.SummaryOpts{
+		Name:      "addr_counts",
+		Subsystem: "stats",
+		Namespace: "libp2p",
+		Help:      "address counts discovered by the dht crawls",
+	})
 )
 
 func init() {
@@ -322,7 +329,16 @@ func scrapePeers(db *leveldb.DB, h host.Host, mdht *dht.IpfsDHT) error {
 			return
 		}
 
-		for range peers {
+		done := false
+		for !done {
+			select {
+			case _, ok := <-peers:
+				if !ok {
+					done = true
+				}
+			case <-mctx.Done():
+				done = true
+			}
 		}
 		took := time.Since(start).Seconds()
 		query_lat_h.Observe(took)
