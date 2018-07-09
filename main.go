@@ -17,18 +17,13 @@ import (
 	ds "github.com/ipfs/go-datastore"
 	"github.com/ipfs/go-ipfs-addr"
 	logging "github.com/ipfs/go-log"
-	crypto "github.com/libp2p/go-libp2p-crypto"
+	libp2p "github.com/libp2p/go-libp2p"
 	host "github.com/libp2p/go-libp2p-host"
 	dht "github.com/libp2p/go-libp2p-kad-dht"
 	peer "github.com/libp2p/go-libp2p-peer"
 	pstore "github.com/libp2p/go-libp2p-peerstore"
-	swarm "github.com/libp2p/go-libp2p-swarm"
-	bhost "github.com/libp2p/go-libp2p/p2p/host/basic"
 	ma "github.com/multiformats/go-multiaddr"
 	mh "github.com/multiformats/go-multihash"
-	mplex "github.com/whyrusleeping/go-smux-multiplex"
-	msmux "github.com/whyrusleeping/go-smux-multistream"
-	yamux "github.com/whyrusleeping/go-smux-yamux"
 )
 
 var (
@@ -97,51 +92,6 @@ func init() {
 	}
 }
 
-// TODO: need a package that makes this easier.
-func makeBasicHost() (host.Host, error) {
-	priv, pub, err := crypto.GenerateKeyPairWithReader(crypto.RSA, 2048, rand.Reader)
-	if err != nil {
-		return nil, err
-	}
-
-	// Obtain Peer ID from public key
-	pid, err := peer.IDFromPublicKey(pub)
-	if err != nil {
-		return nil, err
-	}
-
-	ps := pstore.NewPeerstore()
-	ps.AddPrivKey(pid, priv)
-	ps.AddPubKey(pid, pub)
-
-	// Set up stream multiplexer
-	tpt := msmux.NewBlankTransport()
-	tpt.AddTransport("/yamux/1.0.0", yamux.DefaultTransport)
-	tpt.AddTransport("/mplex/6.7.0", mplex.DefaultTransport)
-
-	laddr, err := ma.NewMultiaddr("/ip4/0.0.0.0/tcp/4001")
-	if err != nil {
-		panic(err)
-	}
-
-	// Create swarm (implements libP2P Network)
-	swrm, err := swarm.NewSwarmWithProtector(
-		context.Background(),
-		[]ma.Multiaddr{laddr},
-		pid,
-		ps,
-		nil,
-		tpt,
-		nil,
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	netw := (*swarm.Network)(swrm)
-	return bhost.New(netw), nil
-}
-
 func handlePromWithAuth(w http.ResponseWriter, r *http.Request) {
 	u, p, ok := r.BasicAuth()
 	if !ok {
@@ -184,7 +134,7 @@ func main() {
 
 func buildHostAndScrapePeers(db *leveldb.DB) error {
 	fmt.Println("building new node to collect metrics with")
-	h, err := makeBasicHost()
+	h, err := libp2p.New(context.Background(), libp2p.ListenAddrStrings("/ip4/0.0.0.0/tcp/4001"))
 	if err != nil {
 		return err
 	}
