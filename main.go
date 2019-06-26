@@ -134,7 +134,9 @@ func main() {
 
 func buildHostAndScrapePeers(db *leveldb.DB) error {
 	fmt.Println("building new node to collect metrics with")
-	h, err := libp2p.New(context.Background(), libp2p.ListenAddrStrings("/ip4/0.0.0.0/tcp/4001"))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	h, err := libp2p.New(ctx, libp2p.ListenAddrStrings("/ip4/0.0.0.0/tcp/4001"))
 	if err != nil {
 		return err
 	}
@@ -143,8 +145,6 @@ func buildHostAndScrapePeers(db *leveldb.DB) error {
 		fmt.Println("closing host...")
 		h.Close()
 	}()
-
-	ctx := context.Background()
 
 	mds := ds.NewMapDatastore()
 	mdht := dht.NewDHT(ctx, h, mds)
