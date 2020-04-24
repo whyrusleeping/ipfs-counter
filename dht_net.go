@@ -72,6 +72,9 @@ func (dht *IpfsDHT) sendRequest(ctx context.Context, p peer.ID, pmes *pb.Message
 	}
 
 	rpmes, err := ms.SendRequest(ctx, pmes)
+	if err != nil {
+		return nil, err
+	}
 	return rpmes, nil
 }
 

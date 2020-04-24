@@ -20,10 +20,12 @@ func main(){
 	defer cancel()
 
 	out := flag.String("o", "rt.dot", "output file location")
+	outJson := flag.String("ojson", "rt.json", "output json file location")
 	flag.Parse()
 
 	peerMap := make(map[peer.ID]map[peer.ID]struct{})
 	allPeers := make([]*peer.AddrInfo, 0, 1000)
+	allPeersSet := make(map[peer.ID]struct{})
 
 	h, err := libp2p.New(ctx)
 	if err != nil {
@@ -38,8 +40,15 @@ func main(){
 
 	//"/dnsaddr/sjc-2.bootstrap.libp2p.io/p2p/QmZa1sAxajnQjVM8WjWXoMbmPd7NsWhfKsPkErzpm9wGkp"
 	v2Addr := "/ip4/139.178.89.189/tcp/4001/p2p/QmZa1sAxajnQjVM8WjWXoMbmPd7NsWhfKsPkErzpm9wGkp"
-	//v1Addr := "/ip4/104.131.131.82/tcp/4001/p2p/QmaCpDMGvV2BGHeYERUEnRQAwe3N8SzbUtfsmvsqQLuvuJ"
-	startingPeer, err := multiaddr.NewMultiaddr(v2Addr)
+	v1Addr := "/ip4/104.131.131.82/tcp/4001/p2p/QmaCpDMGvV2BGHeYERUEnRQAwe3N8SzbUtfsmvsqQLuvuJ"
+	boosterAddr := "/ip4/207.148.19.196/tcp/20074/p2p/12D3KooWGXBbSZ3ko3UvoekdnnSrdmuFic3XHuNKvGcZyrH1mVxr"
+	booster2Addr := "/ip4/18.185.241.99/tcp/20001/p2p/12D3KooWA4NVc1GytssyhxGqaT22kJ9XwdhCpS2VwNPPMw59Ctf4"
+	hydra1 := "/ip4/64.225.116.25/tcp/30017/p2p/12D3KooWHHVPRYiXuWsVmATm8nduX7dXXpw3kC5Co1QSUYVLNXZN"
+
+	allStarting := []string{v1Addr, v2Addr, boosterAddr, booster2Addr, hydra1, booster2Addr}
+	_= allStarting
+
+	startingPeer, err := multiaddr.NewMultiaddr(v1Addr)
 	if err != nil {
 		panic(err)
 	}
@@ -50,47 +59,90 @@ func main(){
 	}
 	dhtmock.host.Peerstore().AddAddrs(startingPeerInfo.ID, startingPeerInfo.Addrs, time.Hour)
 
+	queryQueue := make(chan peer.ID, 1)
+	queryResQueue := make(chan *queryResult, 1)
+
+	maxQueries := 10000
+	for i :=0; i < maxQueries; i++ {
+		go func() {
+			for {
+				select{
+				case p := <- queryQueue:
+					res := queryPeer(ctx, dhtmock, p)
+					select {
+					case queryResQueue <- res:
+					case <-ctx.Done():
+						return
+					}
+				case <-ctx.Done():
+					return
+				}
+			}
+		}()
+	}
+
 	allPeers = append(allPeers, startingPeerInfo)
-	lastQuery := 0
+	allPeersSet[startingPeerInfo.ID] = struct{}{}
 
-	for lastQuery < len(allPeers) {
-		lastQuery++
-		nextPeerAddr := allPeers[lastQuery - 1]
-		nextPeer := nextPeerAddr.ID
+	numPeersTotal := 1
+	numPeersQueried := 0
+	numOutstandingQueries := 0
 
-		tmpRT, err := kbucket.NewRoutingTable(20, kbucket.ConvertPeerID(nextPeer), time.Hour, h.Peerstore(), time.Hour)
-		if err != nil {
-			fmt.Printf("error creating rt for peer %v : %v", nextPeer, err)
-			continue
+	var nextPeer peer.ID
+	var sendNextPeer chan peer.ID
+
+	for numPeersQueried < numPeersTotal || numOutstandingQueries != 0 {
+		if nextPeer == "" && numPeersQueried < numPeersTotal {
+			nextPeer = allPeers[numPeersQueried].ID
 		}
 
-		localPeers := make(map[peer.ID]struct{})
+		if nextPeer == "" {
+			sendNextPeer = nil
+		} else {
+			sendNextPeer = queryQueue
+		}
 
-		for i := 0; i < 12; i++ {
-			generatePeer, err := tmpRT.GenRandPeerID(uint(i))
-			if err != nil {
-				panic(err)
-			}
-			peers, err := dhtmock.findPeerSingle(ctx, nextPeer, generatePeer)
-			if err != nil {
-				fmt.Printf("error finding data on peer %v with cpl %d : %v", nextPeer, i, err)
-				break
-			}
-			for _, ai := range peers {
-				if _, ok := localPeers[ai.ID]; !ok {
-					localPeers[ai.ID] = struct{}{}
-					if _, ok := peerMap[ai.ID]; !ok {
+		select {
+		case res := <-queryResQueue:
+			if res.err == nil {
+				fmt.Printf("peer %v had %d peers\n", res.peer, len(res.data))
+				if _, ok := peerMap[res.peer]; !ok {
+					rtPeers := make(map[peer.ID]struct{}, len(res.data))
+					for p := range res.data {
+						rtPeers[p]= struct{}{}
+					}
+					peerMap[res.peer] = rtPeers
+				} else {
+					panic("how?")
+				}
+
+				for p, ai := range res.data {
+					dhtmock.host.Peerstore().AddAddrs(p, ai.Addrs, time.Hour)
+					if _, ok := allPeersSet[p]; !ok{
+						allPeersSet[p] = struct{}{}
 						allPeers = append(allPeers, ai)
-						dhtmock.host.Peerstore().AddAddrs(ai.ID, ai.Addrs, time.Hour)
+						numPeersTotal++
 					}
 				}
 			}
+			numOutstandingQueries--
+		case sendNextPeer <- nextPeer:
+			numOutstandingQueries++
+			numPeersQueried++
+			nextPeer = ""
+			fmt.Printf("starting %d out of %d\n", numPeersQueried, len(allPeers))
+		case <-ctx.Done():
+			return
 		}
-		peerMap[nextPeer] = localPeers
-		fmt.Printf("peer %v had %d peers", nextPeer, len(localPeers))
 	}
 
-	f, err := os.Create(*out)
+	OutputData(*out, *outJson, peerMap)
+}
+
+func OutputData(filePath, jsonFile string, peerMap map[peer.ID]map[peer.ID]struct{}) {
+	f, err := os.Create(filePath)
+	defer f.Close()
+
 	if err != nil {
 		panic(err)
 	}
@@ -101,4 +153,37 @@ func main(){
 		}
 	}
 	f.WriteString("\n}")
+}
+
+type queryResult struct{
+	peer peer.ID
+	data map[peer.ID]*peer.AddrInfo
+	err error
+}
+
+func queryPeer(ctx context.Context, dhtmock *IpfsDHT, nextPeer peer.ID) *queryResult {
+	tmpRT, err := kbucket.NewRoutingTable(20, kbucket.ConvertPeerID(nextPeer), time.Hour, dhtmock.host.Peerstore(), time.Hour)
+	if err != nil {
+		fmt.Printf("error creating rt for peer %v : %v\n", nextPeer, err)
+		return &queryResult{nextPeer, nil, err}
+	}
+
+	localPeers := make(map[peer.ID]*peer.AddrInfo)
+	for i := 0; i < 12; i++ {
+		generatePeer, err := tmpRT.GenRandPeerID(uint(i))
+		if err != nil {
+			panic(err)
+		}
+		peers, err := dhtmock.findPeerSingle(ctx, nextPeer, generatePeer)
+		if err != nil {
+			fmt.Printf("error finding data on peer %v with cpl %d : %v\n", nextPeer, i, err)
+			break
+		}
+		for _, ai := range peers {
+			if _, ok := localPeers[ai.ID]; !ok {
+				localPeers[ai.ID] = ai
+			}
+		}
+	}
+	return &queryResult{nextPeer, localPeers, nil}
 }
