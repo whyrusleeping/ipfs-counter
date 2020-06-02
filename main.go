@@ -8,14 +8,16 @@ import (
 	"time"
 
 	"github.com/libp2p/go-libp2p"
+	"github.com/libp2p/go-libp2p-core/host"
 	"github.com/libp2p/go-libp2p-core/peer"
 	"github.com/libp2p/go-libp2p-core/protocol"
 
+	kaddht "github.com/libp2p/go-libp2p-kad-dht"
 	kbucket "github.com/libp2p/go-libp2p-kbucket"
 	"github.com/multiformats/go-multiaddr"
 )
 
-func main(){
+func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -32,11 +34,7 @@ func main(){
 		panic(err)
 	}
 
-	dhtmock := &IpfsDHT{
-		host:      h,
-		strmap:     make(map[peer.ID]*messageSender),
-		protocols: []protocol.ID{"/ipfs/kad/1.0.0"},
-	}
+	dhtRPC := kaddht.NewProtocolMessenger(h, []protocol.ID{"/ipfs/kad/1.0.0"}, nil)
 
 	//"/dnsaddr/sjc-2.bootstrap.libp2p.io/p2p/QmZa1sAxajnQjVM8WjWXoMbmPd7NsWhfKsPkErzpm9wGkp"
 	v2Addr := "/ip4/139.178.89.189/tcp/4001/p2p/QmZa1sAxajnQjVM8WjWXoMbmPd7NsWhfKsPkErzpm9wGkp"
@@ -46,7 +44,7 @@ func main(){
 	hydra1 := "/ip4/64.225.116.25/tcp/30017/p2p/12D3KooWHHVPRYiXuWsVmATm8nduX7dXXpw3kC5Co1QSUYVLNXZN"
 
 	allStarting := []string{v1Addr, v2Addr, boosterAddr, booster2Addr, hydra1, booster2Addr}
-	_= allStarting
+	_ = allStarting
 
 	startingPeer, err := multiaddr.NewMultiaddr(v1Addr)
 	if err != nil {
@@ -57,18 +55,18 @@ func main(){
 	if err != nil {
 		panic(err)
 	}
-	dhtmock.host.Peerstore().AddAddrs(startingPeerInfo.ID, startingPeerInfo.Addrs, time.Hour)
+	h.Peerstore().AddAddrs(startingPeerInfo.ID, startingPeerInfo.Addrs, time.Hour)
 
 	queryQueue := make(chan peer.ID, 1)
 	queryResQueue := make(chan *queryResult, 1)
 
 	maxQueries := 10000
-	for i :=0; i < maxQueries; i++ {
+	for i := 0; i < maxQueries; i++ {
 		go func() {
 			for {
-				select{
-				case p := <- queryQueue:
-					res := queryPeer(ctx, dhtmock, p)
+				select {
+				case p := <-queryQueue:
+					res := queryPeer(ctx, h, dhtRPC, p)
 					select {
 					case queryResQueue <- res:
 					case <-ctx.Done():
@@ -109,7 +107,7 @@ func main(){
 				if _, ok := peerMap[res.peer]; !ok {
 					rtPeers := make(map[peer.ID]struct{}, len(res.data))
 					for p := range res.data {
-						rtPeers[p]= struct{}{}
+						rtPeers[p] = struct{}{}
 					}
 					peerMap[res.peer] = rtPeers
 				} else {
@@ -117,8 +115,8 @@ func main(){
 				}
 
 				for p, ai := range res.data {
-					dhtmock.host.Peerstore().AddAddrs(p, ai.Addrs, time.Hour)
-					if _, ok := allPeersSet[p]; !ok{
+					h.Peerstore().AddAddrs(p, ai.Addrs, time.Hour)
+					if _, ok := allPeersSet[p]; !ok {
 						allPeersSet[p] = struct{}{}
 						allPeers = append(allPeers, ai)
 						numPeersTotal++
@@ -155,14 +153,14 @@ func OutputData(filePath, jsonFile string, peerMap map[peer.ID]map[peer.ID]struc
 	f.WriteString("\n}")
 }
 
-type queryResult struct{
+type queryResult struct {
 	peer peer.ID
 	data map[peer.ID]*peer.AddrInfo
-	err error
+	err  error
 }
 
-func queryPeer(ctx context.Context, dhtmock *IpfsDHT, nextPeer peer.ID) *queryResult {
-	tmpRT, err := kbucket.NewRoutingTable(20, kbucket.ConvertPeerID(nextPeer), time.Hour, dhtmock.host.Peerstore(), time.Hour)
+func queryPeer(ctx context.Context, host host.Host, dhtRPC *kaddht.ProtocolMessenger, nextPeer peer.ID) *queryResult {
+	tmpRT, err := kbucket.NewRoutingTable(20, kbucket.ConvertPeerID(nextPeer), time.Hour, host.Peerstore(), time.Hour)
 	if err != nil {
 		fmt.Printf("error creating rt for peer %v : %v\n", nextPeer, err)
 		return &queryResult{nextPeer, nil, err}
@@ -174,7 +172,7 @@ func queryPeer(ctx context.Context, dhtmock *IpfsDHT, nextPeer peer.ID) *queryRe
 		if err != nil {
 			panic(err)
 		}
-		peers, err := dhtmock.findPeerSingle(ctx, nextPeer, generatePeer)
+		peers, err := dhtRPC.GetClosestPeers(ctx, nextPeer, generatePeer)
 		if err != nil {
 			fmt.Printf("error finding data on peer %v with cpl %d : %v\n", nextPeer, i, err)
 			break
