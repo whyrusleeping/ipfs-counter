@@ -151,7 +151,7 @@ func buildHostAndScrapePeers(db *leveldb.DB) error {
 		libp2p.Security(tls.ID, tls.New),
 		libp2p.Security(noise.ID, noise.New),
 		libp2p.Security(secio.ID, secio.New),
-		)
+	)
 	if err != nil {
 		return err
 	}
