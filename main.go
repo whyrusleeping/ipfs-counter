@@ -24,6 +24,13 @@ import (
 	pstore "github.com/libp2p/go-libp2p-peerstore"
 	ma "github.com/multiformats/go-multiaddr"
 	mh "github.com/multiformats/go-multihash"
+
+	noise "github.com/libp2p/go-libp2p-noise"
+	quic "github.com/libp2p/go-libp2p-quic-transport"
+	secio "github.com/libp2p/go-libp2p-secio"
+	tls "github.com/libp2p/go-libp2p-tls"
+	tcp "github.com/libp2p/go-tcp-transport"
+	ws "github.com/libp2p/go-ws-transport"
 )
 
 var (
@@ -136,7 +143,15 @@ func buildHostAndScrapePeers(db *leveldb.DB) error {
 	fmt.Println("building new node to collect metrics with")
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	h, err := libp2p.New(ctx, libp2p.ListenAddrStrings("/ip4/0.0.0.0/tcp/4001"))
+	h, err := libp2p.New(ctx,
+		libp2p.ListenAddrStrings("/ip4/0.0.0.0/tcp/4001"),
+		libp2p.Transport(quic.NewTransport),
+		libp2p.Transport(tcp.NewTCPTransport),
+		libp2p.Transport(ws.New),
+		libp2p.Security(tls.ID, tls.New),
+		libp2p.Security(noise.ID, noise.New),
+		libp2p.Security(secio.ID, secio.New),
+		)
 	if err != nil {
 		return err
 	}
