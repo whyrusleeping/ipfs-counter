@@ -10,6 +10,12 @@ import (
 	"github.com/libp2p/go-libp2p"
 	"github.com/libp2p/go-libp2p-core/host"
 	"github.com/libp2p/go-libp2p-core/peer"
+	noise "github.com/libp2p/go-libp2p-noise"
+	quic "github.com/libp2p/go-libp2p-quic-transport"
+	secio "github.com/libp2p/go-libp2p-secio"
+	tls "github.com/libp2p/go-libp2p-tls"
+	"github.com/libp2p/go-tcp-transport"
+	ws "github.com/libp2p/go-ws-transport"
 
 	"github.com/libp2p/go-libp2p-kad-dht/crawler"
 	"github.com/multiformats/go-multiaddr"
@@ -52,12 +58,30 @@ var bootstrapAddrs = []multiaddr.Multiaddr{
 	must(multiaddr.NewMultiaddr("/ip4/207.148.19.196/tcp/20074/p2p/12D3KooWGXBbSZ3ko3UvoekdnnSrdmuFic3XHuNKvGcZyrH1mVxr")),
 	must(multiaddr.NewMultiaddr("/ip4/18.185.241.99/tcp/20001/p2p/12D3KooWA4NVc1GytssyhxGqaT22kJ9XwdhCpS2VwNPPMw59Ctf4")),
 	must(multiaddr.NewMultiaddr("/ip4/64.225.116.25/tcp/30017/p2p/12D3KooWHHVPRYiXuWsVmATm8nduX7dXXpw3kC5Co1QSUYVLNXZN")),
+
+	must(multiaddr.NewMultiaddr("/ip4/104.131.131.82/tcp/4001/ipfs/QmaCpDMGvV2BGHeYERUEnRQAwe3N8SzbUtfsmvsqQLuvuJ")),  // mars.i.ipfs.io
+	must(multiaddr.NewMultiaddr("/ip4/104.236.179.241/tcp/4001/ipfs/QmSoLPppuBtQSGwKDZT2M73ULpjvfd3aZ6ha4oFGL1KrGM")), // pluto.i.ipfs.io
+	must(multiaddr.NewMultiaddr("/ip4/128.199.219.111/tcp/4001/ipfs/QmSoLSafTMBsPKadTEgaXctDQVcqN88CNLHXMkTNwMKPnu")), // saturn.i.ipfs.io
+	must(multiaddr.NewMultiaddr("/ip4/104.236.76.40/tcp/4001/ipfs/QmSoLV4Bbm51jM9C4gDYZQ9Cy3U6aXMJDAbzgu2fzaDs64")),   // venus.i.ipfs.io
+	must(multiaddr.NewMultiaddr("/ip4/178.62.158.247/tcp/4001/ipfs/QmSoLer265NRgSp2LA3dPaeykiS1J6DifTC88f5uVQKNAd")),  // earth.i.ipfs.io
+	must(multiaddr.NewMultiaddr("/ip4/104.236.151.122/tcp/4001/ipfs/QmSoLju6m7xTh3DuokvT3886QRYqxAzb1kShaanJgW36yx")),
+	must(multiaddr.NewMultiaddr("/ip4/188.40.114.11/tcp/4001/ipfs/QmZY7MtK8ZbG1suwrxc7xEYZ2hQLf1dAWPRHhjxC8rjq8E")),
+	must(multiaddr.NewMultiaddr("/ip4/5.9.59.34/tcp/4001/ipfs/QmRv1GNseNP1krEwHDjaQMeQVJy41879QcDwpJVhY8SWve")),
 }
 
 func makeHost(c *cli.Context) (host.Host, *Recorder, error) {
 	r := NewRecorder(c)
 
-	h, err := libp2p.New(c.Context, libp2p.ConnectionGater(r))
+	h, err := libp2p.New(c.Context,
+		libp2p.ConnectionGater(r),
+		libp2p.ListenAddrStrings("/ip4/0.0.0.0/tcp/4001"),
+		libp2p.Transport(quic.NewTransport),
+		libp2p.Transport(tcp.NewTCPTransport),
+		libp2p.Transport(ws.New),
+		libp2p.Security(tls.ID, tls.New),
+		libp2p.Security(noise.ID, noise.New),
+		libp2p.Security(secio.ID, secio.New),
+	)
 	r.host = h
 	if err != nil {
 		return nil, nil, err
