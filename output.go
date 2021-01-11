@@ -40,11 +40,14 @@ func OutputTrials(filePath string, r *Recorder) error {
 	}
 
 	e := json.NewEncoder(f)
-	for _, rec := range r.dials {
-		err := e.Encode(rec)
+	var lastErr error
+	r.dials.Range(func(k, v interface{}) bool {
+		err := e.Encode(v)
 		if err != nil {
-			return err
+			lastErr = err
+			return false
 		}
-	}
-	return nil
+		return true
+	})
+	return lastErr
 }

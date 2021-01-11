@@ -8,6 +8,7 @@ import (
 	"github.com/urfave/cli/v2"
 
 	"github.com/libp2p/go-libp2p"
+	"github.com/libp2p/go-libp2p-core/event"
 	"github.com/libp2p/go-libp2p-core/host"
 	"github.com/libp2p/go-libp2p-core/peer"
 	noise "github.com/libp2p/go-libp2p-noise"
@@ -76,6 +77,7 @@ func makeHost(c *cli.Context) (host.Host, *Recorder, error) {
 		libp2p.ConnectionGater(r),
 		libp2p.ListenAddrStrings("/ip4/0.0.0.0/tcp/4001"),
 		libp2p.Transport(quic.NewTransport),
+		libp2p.DefaultTransports,
 		libp2p.Transport(tcp.NewTCPTransport),
 		libp2p.Transport(ws.New),
 		libp2p.Security(tls.ID, tls.New),
@@ -86,6 +88,13 @@ func makeHost(c *cli.Context) (host.Host, *Recorder, error) {
 	if err != nil {
 		return nil, nil, err
 	}
+
+	sub, err := h.EventBus().Subscribe(new(event.EvtPeerConnectednessChanged))
+	if err != nil {
+		return nil, nil, err
+	}
+	go r.onPeerConnectednessEvent(sub)
+
 	return h, r, nil
 }
 
