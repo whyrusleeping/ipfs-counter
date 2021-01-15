@@ -14,6 +14,9 @@ import (
 	"github.com/libp2p/go-libp2p-core/network"
 	"github.com/libp2p/go-libp2p-core/peer"
 	"github.com/urfave/cli/v2"
+
+	"cloud.google.com/go/bigquery"
+	"cloud.google.com/go/civil"
 )
 
 // Recorder holds the collected output of a crawl
@@ -22,10 +25,16 @@ type Recorder struct {
 	dials   sync.Map //map Multiaddr->Trial
 	host    host.Host
 	log     logging.StandardLogger
+
+	Client      *bigquery.Client
+	nodeStream  chan *Node
+	trialStream chan *Trial
+	done        chan bool
+	wg          sync.WaitGroup
 }
 
 // NewRecorder creates a recorder in a given context
-func NewRecorder(c *cli.Context) *Recorder {
+func NewRecorder(c *cli.Context) (*Recorder, error) {
 	ll := "info"
 	if c.Bool("debug") {
 		ll = "debug"
@@ -34,11 +43,21 @@ func NewRecorder(c *cli.Context) *Recorder {
 	l := logging.Logger("crawlapp")
 	logging.SetLogLevel("crawlapp", ll)
 
-	return &Recorder{
+	rec := &Recorder{
 		log:     l,
 		dials:   sync.Map{},
 		records: make(map[peer.ID]Node),
 	}
+
+	if c.IsSet("dataset") || c.IsSet("table") {
+		if err := rec.Connect(c.Context, c.String("dataset"), c.String("table")); err != nil {
+			return nil, err
+		}
+		if err := rec.setupBigquery(c.Context, c.String("dataset"), c.String("table"), c.Bool("create-tables")); err != nil {
+			return nil, err
+		}
+	}
+	return rec, nil
 }
 
 // InterceptPeerDial is part of the ConnectionGater interface
@@ -52,6 +71,7 @@ func (r *Recorder) InterceptAddrDial(id peer.ID, addr ma.Multiaddr) (allow bool)
 	if !ok {
 		ip, err := manet.ToIP(addr)
 		val = &Trial{
+			Observed:   time.Now(),
 			ID:         id,
 			Address:    ip,
 			FailSanity: (err != nil),
@@ -91,8 +111,9 @@ func (r *Recorder) onPeerConnectednessEvent(sub event.Subscription) error {
 				// see if a pending dial for the peer
 				if t, ok := r.dials.Load(addr); ok {
 					trials := t.(*Trial)
-					if trials.Results[len(trials.Results)-1].EndTime.IsZero() {
-						trials.Results[len(trials.Results)-1].EndTime = time.Now()
+					if !trials.Results[len(trials.Results)-1].EndTime.Valid {
+						trials.Results[len(trials.Results)-1].EndTime.DateTime = civil.DateTimeOf(time.Now())
+						trials.Results[len(trials.Results)-1].EndTime.Valid = true
 					}
 				}
 			}
@@ -120,6 +141,7 @@ func (r *Recorder) onPeerSuccess(p peer.ID, rtPeers []*peer.AddrInfo) {
 	}
 
 	n := Node{
+		Observed:        time.Now(),
 		ID:              p,
 		Addrs:           r.host.Peerstore().Addrs(p),
 		UserAgent:       ua.(string),
@@ -127,6 +149,9 @@ func (r *Recorder) onPeerSuccess(p peer.ID, rtPeers []*peer.AddrInfo) {
 		RTPeers:         rtPeerSet,
 	}
 	r.records[p] = n
+	if r.nodeStream != nil {
+		r.nodeStream <- &n
+	}
 
 	r.log.Debugf("%s crawl successful", p)
 }
@@ -137,11 +162,15 @@ func (r *Recorder) onPeerFailure(p peer.ID, err error) {
 	}
 
 	n := Node{
-		ID:    p,
-		Addrs: r.host.Peerstore().Addrs(p),
-		Err:   err.Error(),
+		Observed: time.Now(),
+		ID:       p,
+		Addrs:    r.host.Peerstore().Addrs(p),
+		Err:      err.Error(),
 	}
 	r.records[p] = n
+	if r.nodeStream != nil {
+		r.nodeStream <- &n
+	}
 
 	r.log.Debugf("%s crawl failed", p)
 }

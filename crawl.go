@@ -26,9 +26,20 @@ var crawlFlags = []cli.Flag{
 	&cli.StringFlag{
 		Name:      "output",
 		TakesFile: true,
-		Required:  true,
 		Usage:     "Output file location",
 		Value:     "crawl-output",
+	},
+	&cli.StringFlag{
+		Name:  "dataset",
+		Usage: "Google biquery dataset ID for insertion",
+	},
+	&cli.StringFlag{
+		Name:  "table",
+		Usage: "Google bigquery table prefix for insertion",
+	},
+	&cli.BoolFlag{
+		Name:  "create-tables",
+		Usage: "To create bigquery tables if they do not exist",
 	},
 	&cli.StringFlag{
 		Name:      "seed",
@@ -75,9 +86,7 @@ var bootstrapAddrs = []multiaddr.Multiaddr{
 	must(multiaddr.NewMultiaddr("/ip4/5.9.59.34/tcp/4001/ipfs/QmRv1GNseNP1krEwHDjaQMeQVJy41879QcDwpJVhY8SWve")),
 }
 
-func makeHost(c *cli.Context) (host.Host, *Recorder, error) {
-	r := NewRecorder(c)
-
+func makeHost(c *cli.Context, r *Recorder) (host.Host, error) {
 	crypto.MinRsaKeyBits = 512
 
 	h, err := libp2p.New(c.Context,
@@ -93,16 +102,16 @@ func makeHost(c *cli.Context) (host.Host, *Recorder, error) {
 	)
 	r.host = h
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	sub, err := h.EventBus().Subscribe(new(event.EvtPeerConnectednessChanged))
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	go r.onPeerConnectednessEvent(sub)
 
-	return h, r, nil
+	return h, nil
 }
 
 func crawl(c *cli.Context) error {
@@ -133,7 +142,12 @@ func crawl(c *cli.Context) error {
 		}
 	}
 
-	host, r, err := makeHost(c)
+	r, err := NewRecorder(c)
+	if err != nil {
+		return err
+	}
+
+	host, err := makeHost(c, r)
 	if err != nil {
 		return err
 	}

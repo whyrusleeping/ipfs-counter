@@ -7,6 +7,9 @@ import (
 
 // Output writes recorded output to a file at filePath
 func Output(filePath string, r *Recorder) error {
+	if r.Client != nil {
+		return r.Finish()
+	}
 	if err := OutputNodes(filePath+".nodes.json", r); err != nil {
 		return err
 	}
