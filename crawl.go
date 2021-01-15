@@ -2,12 +2,14 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	logging "github.com/ipfs/go-log"
 	"github.com/urfave/cli/v2"
 
 	"github.com/libp2p/go-libp2p"
+	"github.com/libp2p/go-libp2p-core/crypto"
 	"github.com/libp2p/go-libp2p-core/event"
 	"github.com/libp2p/go-libp2p-core/host"
 	"github.com/libp2p/go-libp2p-core/peer"
@@ -15,8 +17,6 @@ import (
 	quic "github.com/libp2p/go-libp2p-quic-transport"
 	secio "github.com/libp2p/go-libp2p-secio"
 	tls "github.com/libp2p/go-libp2p-tls"
-	"github.com/libp2p/go-tcp-transport"
-	ws "github.com/libp2p/go-ws-transport"
 
 	"github.com/libp2p/go-libp2p-kad-dht/crawler"
 	"github.com/multiformats/go-multiaddr"
@@ -24,11 +24,11 @@ import (
 
 var crawlFlags = []cli.Flag{
 	&cli.StringFlag{
-		Name:        "output",
-		TakesFile:   true,
-		Required:    true,
-		Usage:       "Output file location",
-		DefaultText: "crawl-output.json",
+		Name:      "output",
+		TakesFile: true,
+		Required:  true,
+		Usage:     "Output file location",
+		Value:     "crawl-output",
 	},
 	&cli.StringFlag{
 		Name:      "seed",
@@ -36,9 +36,14 @@ var crawlFlags = []cli.Flag{
 		Usage:     "Output from a previous execution",
 	},
 	&cli.IntFlag{
-		Name:        "parallelism",
-		Usage:       "How many connections to open at once",
-		DefaultText: "1000",
+		Name:  "parallelism",
+		Usage: "How many connections to open at once",
+		Value: 1000,
+	},
+	&cli.DurationFlag{
+		Name:  "crawltime",
+		Usage: "How long to crawl for",
+		Value: 20 * time.Hour,
 	},
 	&cli.BoolFlag{
 		Name:  "debug",
@@ -73,13 +78,15 @@ var bootstrapAddrs = []multiaddr.Multiaddr{
 func makeHost(c *cli.Context) (host.Host, *Recorder, error) {
 	r := NewRecorder(c)
 
+	crypto.MinRsaKeyBits = 512
+
 	h, err := libp2p.New(c.Context,
 		libp2p.ConnectionGater(r),
 		libp2p.ListenAddrStrings("/ip4/0.0.0.0/tcp/4001"),
 		libp2p.Transport(quic.NewTransport),
 		libp2p.DefaultTransports,
-		libp2p.Transport(tcp.NewTCPTransport),
-		libp2p.Transport(ws.New),
+		//		libp2p.Transport(tcp.NewTCPTransport),
+		//		libp2p.Transport(ws.New),
 		libp2p.Security(tls.ID, tls.New),
 		libp2p.Security(noise.ID, noise.New),
 		libp2p.Security(secio.ID, secio.New),
@@ -132,7 +139,7 @@ func crawl(c *cli.Context) error {
 	}
 
 	// populate host info
-	peers := make([]*peer.AddrInfo, len(pending))
+	peers := make([]*peer.AddrInfo, 0, len(pending))
 	for _, p := range pending {
 		pis, err := peer.AddrInfosFromP2pAddrs(p.Addrs...)
 		if err != nil {
@@ -142,7 +149,17 @@ func crawl(c *cli.Context) error {
 		for _, pi := range pis {
 			peers = append(peers, &pi)
 		}
-		host.Peerstore().AddAddrs(p.ID, p.Addrs, time.Hour)
+
+		nonIDAddrs := make([]multiaddr.Multiaddr, 0, len(p.Addrs))
+		// Remove the /p2p/<id> portion of the addresses.
+		for _, a := range p.Addrs {
+			na, _ := multiaddr.SplitFunc(a, func(c multiaddr.Component) bool {
+				return c.Protocol().Code == multiaddr.P_P2P
+			})
+			nonIDAddrs = append(nonIDAddrs, na)
+		}
+		fmt.Printf("Addrs: %+v\n", nonIDAddrs)
+		host.Peerstore().AddAddrs(p.ID, nonIDAddrs, time.Hour)
 	}
 
 	crawl, err := crawler.New(host, crawler.WithParallelism(c.Int("parallelism")))
@@ -151,7 +168,7 @@ func crawl(c *cli.Context) error {
 	}
 
 	// TODO: configure timeout.
-	short, c2 := context.WithTimeout(ctx, time.Hour*20)
+	short, c2 := context.WithTimeout(ctx, c.Duration("crawltime"))
 	defer c2()
 	crawl.Run(short, peers,
 		r.onPeerSuccess,
