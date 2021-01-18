@@ -10,7 +10,6 @@ import (
 
 	"github.com/libp2p/go-libp2p"
 	"github.com/libp2p/go-libp2p-core/crypto"
-	"github.com/libp2p/go-libp2p-core/event"
 	"github.com/libp2p/go-libp2p-core/host"
 	"github.com/libp2p/go-libp2p-core/peer"
 	noise "github.com/libp2p/go-libp2p-noise"
@@ -100,16 +99,12 @@ func makeHost(c *cli.Context, r *Recorder) (host.Host, error) {
 		libp2p.Security(noise.ID, noise.New),
 		libp2p.Security(secio.ID, secio.New),
 	)
-	r.host = h
 	if err != nil {
 		return nil, err
 	}
-
-	sub, err := h.EventBus().Subscribe(new(event.EvtPeerConnectednessChanged))
-	if err != nil {
+	if err := r.setHost(h); err != nil {
 		return nil, err
 	}
-	go r.onPeerConnectednessEvent(sub)
 
 	return h, nil
 }

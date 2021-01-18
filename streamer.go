@@ -47,6 +47,7 @@ func (r *Recorder) Connect(ctx context.Context, dataset, table string) error {
 	}
 	r.Client = client
 	r.nodeStream = make(chan *Node, 5)
+	r.trialStream = make(chan *Trial, 5)
 
 	go r.insert(ctx, dataset, table+"_node", table+"_trial")
 	return nil
@@ -100,11 +101,14 @@ func (r *Recorder) setupBigquery(c context.Context, dataset, table string, creat
 func (r *Recorder) insert(ctx context.Context, dataset, nodeTable, trialTable string) {
 	nodeInserter := r.Client.Dataset(dataset).Table(nodeTable).Inserter()
 	trialInserter := r.Client.Dataset(dataset).Table(trialTable).Inserter()
-	r.done = make(chan bool)
 	r.wg.Add(1)
 	defer r.wg.Done()
 
 	for {
+		if r.nodeStream == nil && r.trialStream == nil {
+			return
+		}
+
 		select {
 		case n, ok := <-r.nodeStream:
 			if !ok {
@@ -116,19 +120,15 @@ func (r *Recorder) insert(ctx context.Context, dataset, nodeTable, trialTable st
 			}
 		case t, ok := <-r.trialStream:
 			if !ok {
-				r.nodeStream = nil
+				r.trialStream = nil
 				continue
 			}
 			if err := trialInserter.Put(ctx, t); err != nil {
 				r.log.Warnf("Failed to upload trial %v: %v", t, err)
 			}
 		case <-ctx.Done():
-		case <-r.done:
 			close(r.nodeStream)
 			close(r.trialStream)
-		}
-		if r.nodeStream == nil && r.trialStream == nil {
-			return
 		}
 	}
 }
@@ -141,9 +141,10 @@ func (r *Recorder) Finish() error {
 			return true
 		})
 	}
+	r.cancel()
+	r.log.Info("Waiting for all queries to finish...")
+	r.wg.Wait()
 	if r.Client != nil {
-		r.done <- true
-		r.wg.Wait()
 		return r.Client.Close()
 	}
 	return nil

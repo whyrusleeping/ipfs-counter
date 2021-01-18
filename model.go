@@ -63,27 +63,38 @@ type Trial struct {
 type TrialSchema struct {
 	Observed     time.Time `bigquery:"observed"`
 	peer.ID      `bigquery:"peer_id"`
-	MultiAddress string            `bigquery:"multi_address"`
-	Address      string            `bigquery:"address"`
-	Retries      uint32            `bigquery:"retries"`
-	Results      []Result          `bigquery:"results"`
-	Blocked      bool              `bigquery:"blocked"`
-	FailSanity   bool              `bigquery:"fail_sanity"`
-	RTT          bigquery.NullTime `bigquery:"rtt"`
+	MultiAddress bigquery.NullString `bigquery:"multi_address"`
+	Address      string              `bigquery:"address"`
+	Retries      uint32              `bigquery:"retries"`
+	Results      []Result            `bigquery:"results"`
+	Blocked      bool                `bigquery:"blocked"`
+	FailSanity   bool                `bigquery:"fail_sanity"`
+	RTT          bigquery.NullInt64  `bigquery:"rtt"`
 }
 
 // Save formats a trial for bigquery insertion
 func (t *Trial) Save() (map[string]bigquery.Value, string, error) {
+	ma := bigquery.NullString{}
+	if t.Multiaddr != nil {
+		ma.StringVal = t.Multiaddr.String()
+		ma.Valid = true
+	}
+	rt := bigquery.NullInt64{}
+	if t.RTT != 0 {
+		rt.Int64 = int64(t.RTT)
+		rt.Valid = true
+	}
+
 	return map[string]bigquery.Value{
 		"observed":      t.Observed,
 		"peer_id":       t.ID,
-		"multi_address": t.Multiaddr.String(),
+		"multi_address": ma,
 		"address":       t.Address.String(),
 		"retries":       t.Retries,
 		"results":       t.Results,
 		"blocked":       t.Blocked,
 		"fail_sanity":   t.FailSanity,
-		"rtt":           t.RTT,
+		"rtt":           rt,
 	}, "", nil
 }
 

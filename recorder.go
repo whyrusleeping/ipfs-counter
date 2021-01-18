@@ -1,6 +1,8 @@
 package main
 
 import (
+	"context"
+	"fmt"
 	"sync"
 	"time"
 
@@ -13,6 +15,7 @@ import (
 	"github.com/libp2p/go-libp2p-core/host"
 	"github.com/libp2p/go-libp2p-core/network"
 	"github.com/libp2p/go-libp2p-core/peer"
+	"github.com/libp2p/go-libp2p/p2p/protocol/ping"
 	"github.com/urfave/cli/v2"
 
 	"cloud.google.com/go/bigquery"
@@ -24,12 +27,14 @@ type Recorder struct {
 	records map[peer.ID]Node
 	dials   sync.Map //map Multiaddr->Trial
 	host    host.Host
+	pinger  *ping.PingService
 	log     logging.StandardLogger
+	ctx     context.Context
+	cancel  context.CancelFunc
 
 	Client      *bigquery.Client
 	nodeStream  chan *Node
 	trialStream chan *Trial
-	done        chan bool
 	wg          sync.WaitGroup
 }
 
@@ -48,16 +53,32 @@ func NewRecorder(c *cli.Context) (*Recorder, error) {
 		dials:   sync.Map{},
 		records: make(map[peer.ID]Node),
 	}
+	rec.ctx, rec.cancel = context.WithCancel(c.Context)
 
 	if c.IsSet("dataset") || c.IsSet("table") {
-		if err := rec.Connect(c.Context, c.String("dataset"), c.String("table")); err != nil {
+		if err := rec.Connect(rec.ctx, c.String("dataset"), c.String("table")); err != nil {
 			return nil, err
 		}
-		if err := rec.setupBigquery(c.Context, c.String("dataset"), c.String("table"), c.Bool("create-tables")); err != nil {
+		if err := rec.setupBigquery(rec.ctx, c.String("dataset"), c.String("table"), c.Bool("create-tables")); err != nil {
 			return nil, err
 		}
 	}
 	return rec, nil
+}
+
+func (r *Recorder) setHost(h host.Host) error {
+	r.host = h
+	r.pinger = ping.NewPingService(h)
+
+	h.Network().Notify(r)
+
+	sub, err := h.EventBus().Subscribe(new(event.EvtPeerConnectednessChanged))
+	if err != nil {
+		return err
+	}
+	go r.onPeerConnectednessEvent(sub)
+
+	return nil
 }
 
 // InterceptPeerDial is part of the ConnectionGater interface
@@ -73,6 +94,7 @@ func (r *Recorder) InterceptAddrDial(id peer.ID, addr ma.Multiaddr) (allow bool)
 		val = &Trial{
 			Observed:   time.Now(),
 			ID:         id,
+			Multiaddr:  addr,
 			Address:    ip,
 			FailSanity: (err != nil),
 		}
@@ -98,6 +120,67 @@ func (r *Recorder) InterceptSecured(network.Direction, peer.ID, network.ConnMult
 // InterceptUpgraded is part of the ConnectionGater interface
 func (r *Recorder) InterceptUpgraded(network.Conn) (allow bool, reason control.DisconnectReason) {
 	return true, 0
+}
+
+// Listen is part of the network.Notifee interface
+func (r *Recorder) Listen(network.Network, ma.Multiaddr) {
+
+}
+
+// ListenClose is part of the network.Notifee interface
+func (r *Recorder) ListenClose(network.Network, ma.Multiaddr) {
+
+}
+
+// Connected is part of the network.Notifee interface
+func (r *Recorder) Connected(_ network.Network, c network.Conn) {
+	addr := c.RemoteMultiaddr()
+	if t, ok := r.dials.Load(addr); ok {
+		trials := t.(*Trial)
+		if !trials.Results[len(trials.Results)-1].EndTime.Valid {
+			trials.Results[len(trials.Results)-1].EndTime.DateTime = civil.DateTimeOf(time.Now())
+			trials.Results[len(trials.Results)-1].EndTime.Valid = true
+		}
+	}
+
+	pr := r.pinger.Ping(r.ctx, c.RemotePeer())
+	startTime := time.Now()
+	go func() {
+		res, ok := <-pr
+		if !ok {
+			// failed.
+			return
+		}
+		if t, ok := r.dials.Load(addr); ok {
+			trials := t.(*Trial)
+			trials.Results = append(trials.Results, Result{
+				Success:   true,
+				Error:     bigquery.NullString{Valid: (res.Error != nil), StringVal: fmt.Sprintf("%v", res.Error)},
+				StartTime: startTime,
+				EndTime:   bigquery.NullDateTime{Valid: true, DateTime: civil.DateTimeOf(time.Now())},
+			})
+		}
+	}()
+}
+
+// Disconnected is part of the network.Notifee interface
+func (r *Recorder) Disconnected(_ network.Network, c network.Conn) {
+	addr := c.RemoteMultiaddr()
+	durr := r.host.Peerstore().LatencyEWMA(c.RemotePeer())
+	if t, ok := r.dials.Load(addr); ok {
+		trial := t.(*Trial)
+		trial.RTT = durr
+	}
+}
+
+// OpenedStream is part of the network.Notifee interface
+func (r *Recorder) OpenedStream(network.Network, network.Stream) {
+
+}
+
+// ClosedStream is part of the network.Notifee interface
+func (r *Recorder) ClosedStream(network.Network, network.Stream) {
+
 }
 
 func (r *Recorder) onPeerConnectednessEvent(sub event.Subscription) error {
