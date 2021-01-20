@@ -47,7 +47,7 @@ func (r *Recorder) Connect(ctx context.Context, dataset, table string) error {
 	}
 	r.Client = client
 	r.nodeStream = make(chan *Node, 5)
-	r.trialStream = make(chan *Trial, 5)
+	r.trialStream = make(chan []*Trial, 5)
 
 	go r.insert(ctx, dataset, table+"_node", table+"_trial")
 	return nil
@@ -104,6 +104,8 @@ func (r *Recorder) insert(ctx context.Context, dataset, nodeTable, trialTable st
 	r.wg.Add(1)
 	defer r.wg.Done()
 
+	done := ctx.Done()
+
 	for {
 		if r.nodeStream == nil && r.trialStream == nil {
 			return
@@ -126,9 +128,10 @@ func (r *Recorder) insert(ctx context.Context, dataset, nodeTable, trialTable st
 			if err := trialInserter.Put(ctx, t); err != nil {
 				r.log.Warnf("Failed to upload trial %v: %v", t, err)
 			}
-		case <-ctx.Done():
+		case <-done:
 			close(r.nodeStream)
 			close(r.trialStream)
+			done = nil
 		}
 	}
 }
@@ -136,11 +139,22 @@ func (r *Recorder) insert(ctx context.Context, dataset, nodeTable, trialTable st
 // Finish closes out remaining uploads for the recorder.
 func (r *Recorder) Finish() error {
 	if r.trialStream != nil {
+		trials := make([]*Trial, 0, 1000)
+		i := 0
 		r.dials.Range(func(_, val interface{}) bool {
-			r.trialStream <- val.(*Trial)
+			trials = append(trials, val.(*Trial))
+			i++
+			if len(trials) > 1000 {
+				r.trialStream <- trials
+				trials = make([]*Trial, 0, 1000)
+			}
 			return true
 		})
+		r.trialStream <- trials
+		r.log.Info("Total trials: ", i)
 	}
+	r.log.Info("Closing context...")
+	time.Sleep(time.Second)
 	r.cancel()
 	r.log.Info("Waiting for all queries to finish...")
 	r.wg.Wait()

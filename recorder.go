@@ -34,7 +34,7 @@ type Recorder struct {
 
 	Client      *bigquery.Client
 	nodeStream  chan *Node
-	trialStream chan *Trial
+	trialStream chan []*Trial
 	wg          sync.WaitGroup
 }
 

@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	logging "github.com/ipfs/go-log"
@@ -167,7 +166,6 @@ func crawl(c *cli.Context) error {
 			})
 			nonIDAddrs = append(nonIDAddrs, na)
 		}
-		fmt.Printf("Addrs: %+v\n", nonIDAddrs)
 		host.Peerstore().AddAddrs(p.ID, nonIDAddrs, time.Hour)
 	}
 
@@ -183,6 +181,7 @@ func crawl(c *cli.Context) error {
 		r.onPeerSuccess,
 		r.onPeerFailure)
 
+	logger.Info("Crawl complete. Collecting Output...")
 	Output(c.String("output"), r)
 	return nil
 }
