@@ -6,7 +6,9 @@ workflows:
   version: 2
   test:
     jobs:
-      - ci-go/build
+      - ci-go/build:
+        environment:
+          CGO_ENABLED: 0
       - ci-go/lint
       - ci-go/test
       - ci-go/test:
