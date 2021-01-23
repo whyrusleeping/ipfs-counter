@@ -40,14 +40,23 @@ var crawlFlags = []cli.Flag{
 		Usage: "To create bigquery tables if they do not exist",
 	},
 	&cli.StringFlag{
-		Name:      "seed",
+		Name:      "seed-file",
 		TakesFile: true,
-		Usage:     "Output from a previous execution",
+		Usage:     "Use peers from a file to seed crawling",
+	},
+	&cli.StringFlag{
+		Name:  "seed-table",
+		Usage: "Use peers / multiaddrs from previous trial table to seed crawling",
 	},
 	&cli.IntFlag{
 		Name:  "parallelism",
 		Usage: "How many connections to open at once",
 		Value: 1000,
+	},
+	&cli.DurationFlag{
+		Name:  "timeout",
+		Usage: "How long to wait on dial attempts",
+		Value: 5 * time.Second,
 	},
 	&cli.DurationFlag{
 		Name:  "crawltime",
@@ -118,24 +127,6 @@ func crawl(c *cli.Context) error {
 
 	ctx := c.Context
 
-	pending := make(map[peer.ID]Node, 0)
-
-	// TODO: Load previous nodes from seed.
-
-	for _, ma := range bootstrapAddrs {
-		pi, err := peer.AddrInfoFromP2pAddr(ma)
-		if err != nil {
-			logger.Warnf("Unable to parse address %s: %w", ma, err)
-			continue
-		}
-		if _, ok := pending[pi.ID]; !ok {
-			pending[pi.ID] = Node{
-				ID:    pi.ID,
-				Addrs: []multiaddr.Multiaddr{ma},
-			}
-		}
-	}
-
 	r, err := NewRecorder(c)
 	if err != nil {
 		return err
@@ -145,6 +136,36 @@ func crawl(c *cli.Context) error {
 	if err != nil {
 		return err
 	}
+
+	pending := newMAList()
+
+	if c.IsSet("seed-file") {
+		ok, err := pending.AddFile(c.String("seed-file"))
+		if !ok {
+			return err
+		} else if err != nil {
+			logger.Warnf("Some multiaddrs could not be parsed: %v", err)
+		}
+	} else if c.IsSet("seed-table") {
+		addrs, err := r.getMultiAddrs(ctx, c.String("dataset"), c.String("seed-table"))
+		if err != nil {
+			return err
+		}
+		ok, err := pending.AddStrings(addrs)
+		if !ok {
+			return err
+		} else if err != nil {
+			logger.Warnf("Some multiaddrs could not be parsed: %v", err)
+		}
+	}
+
+	for _, ma := range bootstrapAddrs {
+		if err := pending.Add(ma); err != nil {
+			logger.Warnf("Unable to parse address %s: %w", ma, err)
+			continue
+		}
+	}
+	logger.Infof("Seeding crawl with %d peer addresses", len(pending))
 
 	// populate host info
 	peers := make([]*peer.AddrInfo, 0, len(pending))
@@ -169,7 +190,9 @@ func crawl(c *cli.Context) error {
 		host.Peerstore().AddAddrs(p.ID, nonIDAddrs, time.Hour)
 	}
 
-	crawl, err := crawler.New(host, crawler.WithParallelism(c.Int("parallelism")))
+	crawl, err := crawler.New(host,
+		crawler.WithParallelism(c.Int("parallelism")),
+		crawler.WithMsgTimeout(c.Duration("timeout")))
 	if err != nil {
 		panic(err)
 	}

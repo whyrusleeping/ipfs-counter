@@ -1,3 +1,4 @@
+// Stream contains bigquery-specific code for the recorder.
 package main
 
 import (
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"cloud.google.com/go/bigquery"
+	"google.golang.org/api/iterator"
 )
 
 // Connect sets up a google bigquery client.
@@ -96,6 +98,36 @@ func (r *Recorder) setupBigquery(c context.Context, dataset, table string, creat
 		}
 	}
 	return nil
+}
+
+func (r *Recorder) getMultiAddrs(ctx context.Context, dataset, table string) ([]string, error) {
+	iter, err := r.Client.Query(fmt.Sprintf("SELECT DISTINCT peer_id, multi_address FROM %s.%s", dataset, table)).Read(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	var row TrialSchema
+	err = iter.Next(&row)
+	if err == iterator.Done {
+		return []string{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]string, 0, iter.TotalRows)
+	out = append(out, row.MAString())
+
+	for {
+		err := iter.Next(&row)
+		if err == iterator.Done {
+			return out, nil
+		}
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, row.MAString())
+	}
 }
 
 func (r *Recorder) insert(ctx context.Context, dataset, nodeTable, trialTable string) {

@@ -15,6 +15,7 @@ import (
 	"github.com/libp2p/go-libp2p-core/host"
 	"github.com/libp2p/go-libp2p-core/network"
 	"github.com/libp2p/go-libp2p-core/peer"
+	"github.com/libp2p/go-libp2p-core/peerstore"
 	"github.com/libp2p/go-libp2p/p2p/protocol/ping"
 	"github.com/urfave/cli/v2"
 
@@ -24,7 +25,7 @@ import (
 
 // Recorder holds the collected output of a crawl
 type Recorder struct {
-	records map[peer.ID]Node
+	records map[peer.ID]*Node
 	dials   sync.Map //map Multiaddr->Trial
 	host    host.Host
 	pinger  *ping.PingService
@@ -51,7 +52,7 @@ func NewRecorder(c *cli.Context) (*Recorder, error) {
 	rec := &Recorder{
 		log:     l,
 		dials:   sync.Map{},
-		records: make(map[peer.ID]Node),
+		records: make(map[peer.ID]*Node),
 	}
 	rec.ctx, rec.cancel = context.WithCancel(c.Context)
 
@@ -205,6 +206,31 @@ func (r *Recorder) onPeerConnectednessEvent(sub event.Subscription) error {
 	return nil
 }
 
+func mkNode(p peer.ID, ps peerstore.Peerstore) *Node {
+	ua, err := ps.Get(p, "AgentVersion")
+	if err != nil {
+		ua = ""
+	}
+	pv, err := ps.Get(p, "ProtocolVersion")
+	if err != nil {
+		pv = ""
+	}
+
+	protos, err := ps.GetProtocols(p)
+	if err != nil {
+		protos = []string{}
+	}
+
+	return &Node{
+		Observed:        time.Now(),
+		ID:              p,
+		Addrs:           ps.Addrs(p),
+		Protocols:       protos,
+		UserAgent:       ua.(string),
+		ProtocolVersion: pv.(string),
+	}
+}
+
 func (r *Recorder) onPeerSuccess(p peer.ID, rtPeers []*peer.AddrInfo) {
 	if _, ok := r.records[p]; ok {
 		panic("should not hit this twice")
@@ -214,26 +240,11 @@ func (r *Recorder) onPeerSuccess(p peer.ID, rtPeers []*peer.AddrInfo) {
 		rtPeerSet[ai.ID] = struct{}{}
 	}
 
-	ua, err := r.host.Peerstore().Get(p, "AgentVersion")
-	if err != nil {
-		ua = ""
-	}
-	pv, err := r.host.Peerstore().Get(p, "ProtocolVersion")
-	if err != nil {
-		pv = ""
-	}
-
-	n := Node{
-		Observed:        time.Now(),
-		ID:              p,
-		Addrs:           r.host.Peerstore().Addrs(p),
-		UserAgent:       ua.(string),
-		ProtocolVersion: pv.(string),
-		RTPeers:         rtPeerSet,
-	}
+	n := mkNode(p, r.host.Peerstore())
+	n.RTPeers = rtPeerSet
 	r.records[p] = n
 	if r.nodeStream != nil {
-		r.nodeStream <- &n
+		r.nodeStream <- n
 	}
 
 	r.log.Debugf("%s crawl successful", p)
@@ -244,15 +255,11 @@ func (r *Recorder) onPeerFailure(p peer.ID, err error) {
 		panic("should not hit this twice")
 	}
 
-	n := Node{
-		Observed: time.Now(),
-		ID:       p,
-		Addrs:    r.host.Peerstore().Addrs(p),
-		Err:      err.Error(),
-	}
+	n := mkNode(p, r.host.Peerstore())
+	n.Err = err.Error()
 	r.records[p] = n
 	if r.nodeStream != nil {
-		r.nodeStream <- &n
+		r.nodeStream <- n
 	}
 
 	r.log.Debugf("%s crawl failed", p)

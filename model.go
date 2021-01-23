@@ -17,6 +17,7 @@ type Node struct {
 	// string interpretation of Addrs used when saving to bigquery.
 	Addresses                  []string `json:"-"`
 	UserAgent, ProtocolVersion string
+	Protocols                  []string
 	RTPeers                    map[peer.ID]struct{} `bigquery:"-"`
 	// list of peers for bigquery
 	RT  []peer.ID `bigquery:"rt" json:"-"`
@@ -40,6 +41,7 @@ func (n *Node) Save() (map[string]bigquery.Value, string, error) {
 		"peer_id":         n.ID,
 		"Addresses":       textAddrs,
 		"UserAgent":       n.UserAgent,
+		"Protocols":       n.Protocols,
 		"ProtocolVersion": n.ProtocolVersion,
 		"rt":              pl,
 		"Err":             n.Err,
@@ -70,6 +72,20 @@ type TrialSchema struct {
 	Blocked      bool                `bigquery:"blocked"`
 	FailSanity   bool                `bigquery:"fail_sanity"`
 	RTT          bigquery.NullInt64  `bigquery:"rtt"`
+}
+
+// MAString provides a full multiaddr (address and peer identity key) to re-dial this trial
+func (ts *TrialSchema) MAString() string {
+	parsed, err := multiaddr.NewMultiaddr(ts.MultiAddress.String())
+	if err != nil {
+		return ""
+	}
+	id, err := multiaddr.NewComponent(multiaddr.ProtocolWithCode(multiaddr.P_P2P).Name, ts.ID.String())
+	if err != nil {
+		return ""
+	}
+
+	return parsed.Encapsulate(id).String()
 }
 
 // Save formats a trial for bigquery insertion
