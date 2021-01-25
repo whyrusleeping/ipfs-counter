@@ -128,7 +128,9 @@ func crawl(c *cli.Context) error {
 		ll = "debug"
 	}
 	logger := logging.Logger("dht-crawler")
-	logging.SetLogLevel("dht-crawler", ll)
+	if err := logging.SetLogLevel("dht-crawler", ll); err != nil {
+		return err
+	}
 
 	ctx := c.Context
 
@@ -210,6 +212,5 @@ func crawl(c *cli.Context) error {
 		r.onPeerFailure)
 
 	logger.Info("Crawl complete. Collecting Output...")
-	Output(c.String("output"), r)
-	return nil
+	return Output(c.String("output"), r)
 }

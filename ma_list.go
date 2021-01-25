@@ -14,7 +14,7 @@ type maList map[peer.ID]Node
 
 // NewMAList makes a new multiaddr list
 func newMAList() maList {
-	return make(map[peer.ID]Node, 0)
+	return make(map[peer.ID]Node)
 }
 
 func (m maList) Add(ma multiaddr.Multiaddr) error {

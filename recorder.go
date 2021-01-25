@@ -47,7 +47,9 @@ func NewRecorder(c *cli.Context) (*Recorder, error) {
 	}
 
 	l := logging.Logger("crawlapp")
-	logging.SetLogLevel("crawlapp", ll)
+	if err := logging.SetLogLevel("crawlapp", ll); err != nil {
+		return nil, err
+	}
 
 	rec := &Recorder{
 		log:     l,
@@ -184,7 +186,7 @@ func (r *Recorder) ClosedStream(network.Network, network.Stream) {
 
 }
 
-func (r *Recorder) onPeerConnectednessEvent(sub event.Subscription) error {
+func (r *Recorder) onPeerConnectednessEvent(sub event.Subscription) {
 	for e := range sub.Out() {
 		ev := e.(event.EvtPeerConnectednessChanged)
 		if ev.Connectedness == network.Connected {
@@ -203,7 +205,6 @@ func (r *Recorder) onPeerConnectednessEvent(sub event.Subscription) error {
 			}
 		}
 	}
-	return nil
 }
 
 func mkNode(p peer.ID, ps peerstore.Peerstore) *Node {

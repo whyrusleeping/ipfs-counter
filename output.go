@@ -19,7 +19,11 @@ func Output(filePath string, r *Recorder) error {
 // OutputNodes writes recorded output to a file at filePath
 func OutputNodes(filePath string, r *Recorder) error {
 	f, err := os.Create(filePath)
-	defer f.Close()
+	defer func() {
+		if err := f.Close(); err != nil {
+			r.log.Warnf("Could not close %s: %v", filePath, err)
+		}
+	}()
 	if err != nil {
 		return err
 	}
@@ -37,7 +41,11 @@ func OutputNodes(filePath string, r *Recorder) error {
 // OutputTrials writes recorded output to a file at filePath
 func OutputTrials(filePath string, r *Recorder) error {
 	f, err := os.Create(filePath)
-	defer f.Close()
+	defer func() {
+		if err := f.Close(); err != nil {
+			r.log.Warnf("Could not close %s: %v", filePath, err)
+		}
+	}()
 	if err != nil {
 		return err
 	}
