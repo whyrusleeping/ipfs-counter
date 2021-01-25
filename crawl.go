@@ -48,6 +48,11 @@ var crawlFlags = []cli.Flag{
 		Name:  "seed-table",
 		Usage: "Use peers / multiaddrs from previous trial table to seed crawling",
 	},
+	&cli.DurationFlag{
+		Name:  "seed-table-duration",
+		Usage: "when seeding from table, select date range for querying hosts",
+		Value: 7 * 24 * time.Hour,
+	},
 	&cli.IntFlag{
 		Name:  "parallelism",
 		Usage: "How many connections to open at once",
@@ -147,7 +152,7 @@ func crawl(c *cli.Context) error {
 			logger.Warnf("Some multiaddrs could not be parsed: %v", err)
 		}
 	} else if c.IsSet("seed-table") {
-		addrs, err := r.getMultiAddrs(ctx, c.String("dataset"), c.String("seed-table"))
+		addrs, err := r.getMultiAddrs(ctx, c.String("dataset"), c.String("seed-table"), c.Duration("seed-table-duration"))
 		if err != nil {
 			return err
 		}

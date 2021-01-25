@@ -100,8 +100,32 @@ func (r *Recorder) setupBigquery(c context.Context, dataset, table string, creat
 	return nil
 }
 
-func (r *Recorder) getMultiAddrs(ctx context.Context, dataset, table string) ([]string, error) {
-	iter, err := r.Client.Query(fmt.Sprintf("SELECT DISTINCT peer_id, multi_address FROM %s.%s", dataset, table)).Read(ctx)
+func (r *Recorder) getMultiAddrs(ctx context.Context, dataset, table string, where time.Duration) ([]string, error) {
+	var q *bigquery.Query
+	if where == 0 {
+		q = r.Client.Query(fmt.Sprintf("SELECT DISTINCT peer_id, multi_address FROM %s.%s", dataset, table))
+	} else {
+		q = r.Client.Query(fmt.Sprintf("SELECT DISTINCT peer_id, multi_address FROM %s.%s, UNNEST(results) r WHERE r.Success = true AND observed > @ts_value", dataset, table))
+		q.Parameters = []bigquery.QueryParameter{
+			{
+				Name:  "ts_value",
+				Value: time.Now().Add(-1 * where),
+			},
+		}
+	}
+	job, err := q.Run(ctx)
+	if err != nil {
+		return nil, err
+	}
+	status, err := job.Wait(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if err := status.Err(); err != nil {
+		return nil, err
+	}
+
+	iter, err := q.Read(ctx)
 	if err != nil {
 		return nil, err
 	}
