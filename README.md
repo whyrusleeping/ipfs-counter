@@ -15,15 +15,11 @@ Crawls the IPFS DHT to give some metrics. Note: this project is a WIP and result
 
 `go build`
 
-### Usage
 
-Running the application output prometheus metrics on the path `/metrics` with port 1234. Set the environment variable `IPFS_METRICS_PASSWORD` to control access to the prometheus metrics.
-
-Network data is output into the `netdata` folder via levelDB
-
-## Lead Maintainer
+## Lead Maintainers
 
 [Adin Schmahmann](https://github.com/aschmahmann)
+[Will Scott](https://github.com/willscott)
 
 ## Contributing
 
