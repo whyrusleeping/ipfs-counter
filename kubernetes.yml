@@ -12,7 +12,7 @@ spec:
           - name: ipfs-counter
             image: gcr.io/resnetlab-p2p-observatory/ipfs-counter:latest
             imagePullPolicy: Always
-            args: ["--dataset", "cloud_crawler", "--table", "uscentral", "--create-tables", "--parallelism", "300", "--crawltime", "500s", "--timeout", "30s"]
+            args: ["--dataset", "cloud_crawler", "--table", "uscentral", "--parallelism", "300", "--crawltime", "5000s", "--timeout", "30s", "--seed-table", "uscentral_trial"]
             env:
             - name: GOOGLE_APPLICATION_PROJECT_ID
               value: "resnetlab-p2p-observatory"
