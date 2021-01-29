@@ -14,7 +14,7 @@ jobs:
         with:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-          registry: ghcr.io
+          registry: docker.pkg.github.com
           repository: ipfs-shipyard/ipfs-counter/ipfs-counter
           tags: latest
           tag_with_ref: true
