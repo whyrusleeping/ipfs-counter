@@ -133,6 +133,7 @@ func (r *Recorder) getMultiAddrs(ctx context.Context, dataset, table string, whe
 	var row TrialSchema
 	err = iter.Next(&row)
 	if err == iterator.Done {
+		r.log.Warnf("No rows matched query: %s", q.Q)
 		return []string{}, nil
 	}
 	if err != nil {
@@ -140,7 +141,12 @@ func (r *Recorder) getMultiAddrs(ctx context.Context, dataset, table string, whe
 	}
 
 	out := make([]string, 0, iter.TotalRows)
-	out = append(out, row.MAString())
+	ma, err := row.MAString()
+	if err != nil {
+		r.log.Debugf("Failed to re-generate address for peer: %v", err)
+	} else {
+		out = append(out, ma)
+	}
 
 	for {
 		err := iter.Next(&row)
@@ -150,7 +156,12 @@ func (r *Recorder) getMultiAddrs(ctx context.Context, dataset, table string, whe
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, row.MAString())
+		ma, err = row.MAString()
+		if err != nil {
+			r.log.Debugf("Failed to re-generate address for peer: %v", err)
+		} else {
+			out = append(out, ma)
+		}
 	}
 }
 

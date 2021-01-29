@@ -154,10 +154,12 @@ func crawl(c *cli.Context) error {
 			logger.Warnf("Some multiaddrs could not be parsed: %v", err)
 		}
 	} else if c.IsSet("seed-table") {
+		logger.Info("Loading seed nodes from table...")
 		addrs, err := r.getMultiAddrs(ctx, c.String("dataset"), c.String("seed-table"), c.Duration("seed-table-duration"))
 		if err != nil {
 			return err
 		}
+		logger.Infof("Loaded %d seeds", len(addrs))
 		ok, err := pending.AddStrings(addrs)
 		if !ok {
 			return err

@@ -75,17 +75,23 @@ type TrialSchema struct {
 }
 
 // MAString provides a full multiaddr (address and peer identity key) to re-dial this trial
-func (ts *TrialSchema) MAString() string {
+func (ts *TrialSchema) MAString() (string, error) {
 	parsed, err := multiaddr.NewMultiaddr(ts.MultiAddress.String())
 	if err != nil {
-		return ""
-	}
-	id, err := multiaddr.NewComponent(multiaddr.ProtocolWithCode(multiaddr.P_P2P).Name, ts.ID.String())
-	if err != nil {
-		return ""
+		return "", err
 	}
 
-	return parsed.Encapsulate(id).String()
+	rawid, err := peer.Decode(string(ts.ID))
+	if err != nil {
+		return "", err
+	}
+	pai := peer.AddrInfo{ID: peer.ID(rawid), Addrs: []multiaddr.Multiaddr{parsed}}
+	infos, err := peer.AddrInfoToP2pAddrs(&pai)
+	if err != nil {
+		return "", err
+	}
+
+	return infos[0].String(), nil
 }
 
 // Save formats a trial for bigquery insertion
