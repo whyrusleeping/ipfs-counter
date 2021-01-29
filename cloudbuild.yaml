@@ -13,5 +13,4 @@ steps:
   id: Push
   args:
   - 'push'
-  - 'gcr.io/$PROJECT_ID/ipfs-counter'
-  - '--all-tags'
+  - 'gcr.io/$PROJECT_ID/ipfs-counter:latest'
