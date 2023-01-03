@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"time"
 
@@ -23,7 +22,7 @@ func (r *Recorder) Connect(ctx context.Context, dataset, table string) error {
 	project := ""
 	// Get the bigquery credentials as set.
 	if credFile := os.Getenv("GOOGLE_APPLICATION_CREDENTIALS"); len(credFile) > 0 {
-		f, err := ioutil.ReadFile(credFile)
+		f, err := os.ReadFile(credFile)
 		if err != nil {
 			return err
 		}

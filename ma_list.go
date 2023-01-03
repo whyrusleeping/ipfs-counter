@@ -2,7 +2,7 @@ package main
 
 import (
 	"fmt"
-	"io/ioutil"
+	"os"
 	"strings"
 
 	"github.com/libp2p/go-libp2p-core/peer"
@@ -53,7 +53,7 @@ func (m maList) AddStrings(lines []string) (bool, error) {
 }
 
 func (m maList) AddFile(f string) (bool, error) {
-	lines, err := ioutil.ReadFile(f)
+	lines, err := os.ReadFile(f)
 	if err != nil {
 		return false, err
 	}
