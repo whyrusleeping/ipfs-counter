@@ -1,0 +1,19 @@
+apiVersion: batch/v1beta1
+kind: CronJob
+metadata:
+  name: ipfs-counter
+spec:
+  schedule: "0 1 * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+          - name: ipfs-counter
+            image: gcr.io/resnetlab-p2p-observatory/ipfs-counter:latest
+            imagePullPolicy: Always
+            args: ["--dataset", "cloud_crawler", "--table", "uscentral", "--parallelism", "300", "--crawltime", "5000s", "--timeout", "30s", "--seed-table", "uscentral_trial"]
+            env:
+            - name: GOOGLE_APPLICATION_PROJECT_ID
+              value: "resnetlab-p2p-observatory"
+          restartPolicy: Never
