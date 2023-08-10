@@ -1,6 +1,6 @@
 module github.com/ipfs-shipyard/ipfs-counter
 
-go 1.19
+go 1.20
 
 require (
 	cloud.google.com/go v0.75.0
